@@ -1,0 +1,18 @@
+*To setup {{.message}}*\n
+Use the following configuration\n\n
+
+*Incoming Settings (IMAP)*\n
+*username:* {{.data.email}}\n
+*password:* _{{.data.password}}_\n
+*incoming server:* _{{.data.config.host}}_\n
+*imap port:* 993 with ssl (recommended)\n
+*imap path prefix:* INBOX\n\n
+
+*Outgoing Settings (SMTP)*\n
+*username:* {{.data.email}}\n
+*password:* _{{.data.password}}_\n
+*smtp port:* _587 with ssl (recommended)_\n
+*outgoing server:* _{{.data.config.host}}_\n\n
+
+Ensure your outgoing mail requires ssl\n
+If required, select outgoing mail requires authentication\n

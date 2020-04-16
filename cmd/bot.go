@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -30,6 +31,7 @@ import (
 	handlers "github.com/osiloke/dobot/pkg/handlers/whatsapp"
 	"github.com/osiloke/dostow-contrib/api"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // botCmd represents the bot command
@@ -41,30 +43,25 @@ var botCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		log.SetLevel(log.DebugLevel)
 
-		filepath := "./session.gob"
-		apiURL, _ := cmd.Flags().GetString("apiURL")
-		apiKey, _ := cmd.Flags().GetString("apiKey")
-		apiToken, _ := cmd.Flags().GetString("apiToken")
+		filepath := viper.GetString("session.path")
+		apiURL := viper.GetString("dostow.url")
+		apiKey := viper.GetString("dostow.key")
+		apiToken := viper.GetString("dostow.token")
 
+		log.WithField("apiURL", apiURL).Debug("launching whatsapp bot with dostow")
 		wac, err := ws.NewConn(20 * time.Second)
 		if err != nil {
 			panic(err)
 		}
 		wac.SetClientVersion(0, 4, 2080)
-		a := api.NewClientWithUser(apiURL, apiKey, apiToken)
+		a := api.NewClientWithUser(apiURL, apiKey, apiToken, http.DefaultClient)
 		actionStore := bots.NewDostowActionStore(a)
-		actions := bots.Actions{
-			"get_email": &bots.Action{
-				Method: "GetOne",
-				Store:  "emails",
-				Query: map[string]interface{}{
-					"whatsapp": "message.phone",
-					"email":    "message.messageText",
-				},
-			},
+		actions := bots.Actions{}
+		v, _ := ioutil.ReadFile("./actions.json")
+		err = json.Unmarshal(v, &actions)
+		if err != nil {
+			panic(err)
 		}
-		v, _ := json.Marshal(actions)
-		ioutil.WriteFile("./actions.json", v, 0x777)
 		handler := handlers.NewMessageHandler(wac)
 		bot := bots.NewDostowBot(a, "question", "answer", actions, actionStore, handler)
 		//Add handler
@@ -109,7 +106,12 @@ func init() {
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	botCmd.Flags().StringP("apiURL", "a", "https://api.dostow.com/v1/", "Dostow api URL")
-	botCmd.Flags().StringP("apiKey", "k", "", "Dostow api key")
-	botCmd.Flags().StringP("apiToken", "t", "", "Dostow api token")
+	botCmd.Flags().StringP("api-url", "a", "https://api.dostow.com/v1/", "Dostow api URL")
+	botCmd.Flags().StringP("api-key", "k", "", "Dostow api key")
+	botCmd.Flags().StringP("api-token", "t", "", "Dostow api token")
+	botCmd.Flags().StringP("session-path", "s", "./session.gob", "Path to session")
+	viper.BindPFlag("dostow.url", botCmd.Flags().Lookup("api-url"))
+	viper.BindPFlag("dostow.key", botCmd.Flags().Lookup("api-key"))
+	viper.BindPFlag("dostow.token", botCmd.Flags().Lookup("api-token"))
+	viper.BindPFlag("sessions.path", botCmd.Flags().Lookup("session-path"))
 }

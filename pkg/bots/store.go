@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/osiloke/dostow-contrib/api"
-	"github.com/tidwall/gjson"
 )
 
 // NewDostowActionStore create new store
@@ -18,23 +17,43 @@ type DostowActionStore struct {
 	api *api.Client
 }
 
+type result struct {
+	Data []*json.RawMessage `json:"data"`
+}
+
+func (d *DostowActionStore) query(action *Action, args map[string]interface{}) (*json.RawMessage, error) {
+	query := substituteData(action.Query, args)
+	raw, err := d.api.Store.Search(action.Store, api.QueryParams(query, 1, 0))
+	if err == nil {
+		var rows result
+		err = json.Unmarshal(*raw, &rows)
+		if err == nil {
+			return rows.Data[0], nil
+		}
+	}
+	return nil, err
+}
+
 // Do perform an action
 func (d *DostowActionStore) Do(action *Action, args map[string]interface{}) (interface{}, error) {
-	var err error
-	var raw *json.RawMessage
 	switch action.Method {
 	case "GetOne":
-		query := map[string]interface{}{}
-		j, _ := json.Marshal(args)
-		jsonString := string(j)
-		for k, v := range action.Query {
-			query[k] = gjson.Get(jsonString, v.(string)).String()
+		return d.query(action, args)
+	case "UpdateOne":
+		raw, err := d.query(action, args)
+		if err != nil {
+			return nil, err
 		}
-		raw, err = d.api.Store.Search(action.Store, api.QueryParams(query, 1, 0))
-		if err == nil {
-			return raw, nil
+		result := struct {
+			ID string `json:"id"`
+		}{}
+		err = json.Unmarshal(*raw, &result)
+		if err != nil {
+			return nil, err
 		}
-		return nil, err
+		return d.api.Store.Update(action.Store, result.ID, substituteData(action.Data, args))
+	case "CreateOne":
+		return d.api.Store.Create(action.Store, substituteData(action.Data, args))
 	}
-	return nil, errors.New("not valid")
+	return nil, errors.New("unknown store action")
 }

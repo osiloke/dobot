@@ -1,0 +1,77 @@
+{
+  "get_email_configuration": {
+    "method": "GetOne",
+    "store": "emails",
+    "query": {
+      "whatsapp": "message.phone"
+    },
+    "error": {
+        "msg": "Your phonenumber is not registered. send `Register whatsapp number`",
+        "data": {
+            "email": "message.messageText"
+        }
+    },
+    "next": {
+        "method": "GetOne",
+        "store": "mailConfiguration",
+        "query": {
+            "server": "result.mailspaceNamespace"
+        },
+        "error": {
+            "msg": "I could not get your mail configuration",
+            "data": {
+                "email": "message.messageText"
+            }
+        }
+    }
+  },
+  "get_email": {
+    "method": "GetOne",
+    "store": "emails",
+    "query": {
+      "email": "message.messageText",
+      "whatsapp": "message.phone"
+    },
+    "error": {
+        "msg": "We couldn't find {{email}}. To register this email, send `Register whatsapp number`",
+        "data": {
+            "email": "message.messageText"
+        }
+    },
+    "data": null
+  },
+  "set_email_password": {
+    "method": "UpdateOne",
+    "store": "emails",
+    "query": {
+      "email": "answer.messageText",
+      "whatsapp": "message.phone"
+    },
+    "data": {
+        "password": "message.messageText"
+    }
+  },
+  "create_an_email": {
+    "method": "CreateOne",
+    "store": "emails",
+    "data": { 
+      "email": "answer.messageText",
+      "whatsapp": "message.phone"
+    }
+  },
+  "create_support_ticket_for_new_email": {
+    "method": "CreateOne",
+    "store": "supporticket",
+    "data": { 
+      "whatsapp": "message.phone"
+    }
+  },
+  "create_support_ticket_for_complaint": {
+    "method": "CreateOne",
+    "store": "supporticket",
+    "data": { 
+      "whatsapp": "message.phone",
+      "message": "message.messageText"
+    }
+  }
+}

@@ -1,8 +1,12 @@
 package bots
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"html/template"
+	"strings"
 	"time"
 
 	"github.com/Rhymen/go-whatsapp"
@@ -13,13 +17,15 @@ import (
 
 // Answer stores an answer
 type Answer struct {
-	ID       string    `json:"id"`
-	Action   string    `json:"action"`
-	Answer   string    `json:"answer"`
-	Created  time.Time `json:"created_at"`
-	Modified time.Time `json:"modified_at"`
-	Question *Question `json:"question"`
-	Type     string    `json:"type"`
+	ID          string    `json:"id"`
+	Action      string    `json:"action"`
+	Answer      string    `json:"answer"`
+	Created     time.Time `json:"created_at"`
+	Modified    time.Time `json:"modified_at"`
+	Question    *Question `json:"question"`
+	Type        string    `json:"type"`
+	MessageText string    `json:"messageText"`
+	MessageID   string    `json:"messageID"`
 }
 
 // Question stores a question
@@ -107,15 +113,18 @@ func (d *DostowBot) SendAnswer(q *Question, message *whatsapp.TextMessage, text 
 		d.api.Store.Create(d.answerStore, data)
 		err := d.MessageHandler.SendText(message, text)
 		if q.Next != nil {
-			nextMessage := q.Next.Answer
-			if len(q.Next.Question) > 0 {
-				nextMessage = q.Next.Question
-				data["question"] = q.Next.ID
-				// data["questionText"] = q.Next.Question
-				// data["answerText"] = q.Next.Answer
-				d.api.Store.Create(d.answerStore, data)
+			next := q.Next
+			if next != nil {
+				nextMessage := next.Answer
+				if len(next.Question) > 0 {
+					nextMessage = next.Question
+					// data["question"] = next.ID
+					// // data["questionText"] = q.Next.Question
+					// // data["answerText"] = q.Next.Answer
+					// d.api.Store.Create(d.answerStore, data)
+				}
+				err = d.MessageHandler.SendText(message, nextMessage)
 			}
-			err = d.MessageHandler.SendText(message, nextMessage)
 		}
 		return err
 	}
@@ -126,73 +135,132 @@ func (d *DostowBot) SendAnswer(q *Question, message *whatsapp.TextMessage, text 
 
 // GetLastAnswer get the last answer a whatsapp user sent
 func (d *DostowBot) GetLastAnswer(message *whatsapp.TextMessage) (*Answer, error) {
-	raw, err := d.api.Store.Search(d.answerStore, api.QueryParams(&answerQuery{Phone: message.Info.RemoteJid}, 2, 0))
+	log := log.WithField("phone", message.Info.RemoteJid).WithField("message", message.Text)
+	q := answerQuery{Phone: message.Info.RemoteJid}
+	log.WithField("q", q).Debug("Get last answer")
+	raw, err := d.api.Store.Search(d.answerStore, api.QueryParams(&q, 2, 0))
 	if err == nil {
 		var qs answerResult
 		if err = json.Unmarshal(*raw, &qs); err == nil {
 			if len(qs.Data) > 0 {
 				answer := qs.Data[0]
+				log.WithField("answer", answer).Debug("Found answer")
 				return answer, nil
 			}
+		} else {
+			log.WithError(err).Error("unable to unmarshal result")
 		}
+	} else {
+		log.WithError(err).Error("error while retrieving answers")
 	}
 	return nil, errors.New("no answer found")
 }
 
 // HandleTextMessage see MessageHandler.HandleTextMessage
 func (d *DostowBot) HandleTextMessage(message whatsapp.TextMessage) {
+	log := log.WithField("whatsappID", message.Info.RemoteJid).WithField("messageID", message.Info.Id)
 	if message.Info.FromMe || message.Info.Timestamp < d.MessageHandler.StartTime() {
 		return
 	}
 	lastAnswer, _ := d.GetLastAnswer(&message)
-	raw, err := d.api.Store.Search(d.questionStore, api.QueryParams(&questionQuery{Question: message.Text, Type: "root"}, 100, 0))
-	if err == nil {
-		var qs questionResult
-		if err = json.Unmarshal(*raw, &qs); err == nil {
-			if len(qs.Data) == 1 {
-				msg := qs.Data[0].Answer
-				err = d.SendAnswer(qs.Data[0], &message, msg)
-				if err != nil {
-					log.WithError(err).Error("error sending message")
-					d.SendText(&message, "I can't answer your question right now. Please try again later.")
+	if lastAnswer != nil && len(lastAnswer.MessageID) > 0 {
+		if message.Info.Id == lastAnswer.MessageID {
+			return
+		}
+		messageTime := time.Unix(int64(message.Info.Timestamp), 0)
+		log.Debugf("last answer created at %s, message time %s ", lastAnswer.Created, messageTime)
+		if lastAnswer.Created.After(messageTime) {
+			log.Debugf("last answer is old and was created at %s, message time %s ", lastAnswer.Created, messageTime)
+			return
+		}
+	}
+	var err error
+	if !strings.Contains(strings.ToLower(message.Text), "help") {
+		if lastAnswer != nil && lastAnswer.Question != nil && lastAnswer.Question.Next != nil {
+			tplName := fmt.Sprintf("%s", lastAnswer.Question.ID)
+			var data map[string]interface{}
+			if len(lastAnswer.Question.Next.Action) > 0 {
+				tplName = fmt.Sprintf("%s", lastAnswer.Question.Next.Action)
+				// TODO: lastAnswer.Question.validate(message.Text)
+				var resp interface{}
+				log.WithField("lastAnswer", lastAnswer).Debugf("last answer has a question action for %s", message.Text)
+				resp, err = d.TriggerAction(lastAnswer.Question.Next.Action, &message, lastAnswer)
+				if err == nil {
+					if raw, ok := resp.(*json.RawMessage); ok {
+						err = json.Unmarshal(*raw, &data)
+					}
+					log.WithField("data", data).Debug("action triggered")
 				}
-				return
+				if err != nil {
+					log.WithError(err).Errorf("Cannot trigger action - %s", lastAnswer.Question.Action)
+					d.SendAnswer(nil, &message, "😦 I dont understand, please send help")
+					return
+				}
+			} else {
+				data = map[string]interface{}{}
+			}
+			if len(lastAnswer.Question.Next.Answer) > 0 {
+				var tmpl *template.Template
+				log.Debugf("Create template - %s - %v", tplName, lastAnswer.Question.Next.Answer)
+				tmpl, err = template.New(tplName).Parse(lastAnswer.Question.Next.Answer)
+				if err == nil {
+					var tmplBytes bytes.Buffer
+					err = tmpl.Execute(&tmplBytes, map[string]interface{}{"data": data, "message": message.Text})
+					if err == nil {
+						tplstring := tmplBytes.String()
+						lined := strings.Split(tplstring, "\\n")
+						linedup := ``
+						for _, v := range lined {
+							linedup = fmt.Sprintf(`%s
+%s`, linedup, v)
+						}
+						err = d.SendAnswer(lastAnswer.Question.Next, &message, linedup)
+					} else {
+						log.WithError(err).Error("error executing template")
+					}
+				} else {
+					log.WithError(err).Error("error parsing template")
+				}
+			} else {
+				err = d.SendAnswer(lastAnswer.Question.Next, &message, "Done!")
+			}
+			if err != nil {
+				d.SendText(&message, "I can't answer your question right now. Please try again later.")
+			}
+			return
+		}
+		log.Debugf("search for a root question containing %s", message.Text)
+		raw, err := d.api.Store.Search(d.questionStore, api.QueryParams(&questionQuery{Question: message.Text, Type: "root"}, 100, 0))
+		if err == nil {
+			var qs questionResult
+			if err = json.Unmarshal(*raw, &qs); err == nil {
+				if len(qs.Data) == 1 {
+					log.Debugf("found a root")
+					msg := qs.Data[0].Answer
+					err = d.SendAnswer(qs.Data[0], &message, msg)
+					if err != nil {
+						log.WithError(err).Error("error sending message")
+						d.SendText(&message, "I can't answer your question right now. Please try again later.")
+					}
+					return
+				}
 			}
 		}
 	}
-	if lastAnswer != nil && lastAnswer.Question != nil {
-		// TOdo: lastAnswer.Question.validate(message.Text)
-		if len(lastAnswer.Question.Action) > 0 {
-			_, err = d.TriggerAction(lastAnswer.Question.Action, &message, lastAnswer)
-			if err == nil {
-				// d.MessageHandler.SendText(message, lastAnswer.Question.Answer)
-				err = d.SendAnswer(lastAnswer.Question, &message, lastAnswer.Question.Answer)
-				if err != nil {
-					log.WithError(err).Error("error sending message")
-					d.SendText(&message, "I can't answer your question right now. Please try again later.")
-				}
-				return
-			}
-			log.WithError(err).Errorf("Cannot trigger action - %s")
-			d.MessageHandler.SendText(&message, "😦 Sorry about this but i cannot do this")
-
-		}
-	} else {
-		raw, _, err = d.api.Store.List(d.questionStore, api.QueryParams(&questionQuery{Type: "root"}, 100, 0))
+	raw, _, err := d.api.Store.List(d.questionStore, api.QueryParams(&questionQuery{Type: "root"}, 100, 0))
+	if err == nil {
+		var qs questionResult
+		err = json.Unmarshal(*raw, &qs)
 		if err == nil {
-			var qs questionResult
-			err = json.Unmarshal(*raw, &qs)
-			if err == nil {
-				d.MessageHandler.SendText(&message, "😕 Hey! i don't understand")
-				msg := `👨 Try asking me one of the questions below 👇
+			// d.MessageHandler.SendText(&message, "😕 Hey! i don't understand")
+			msg := `👨 Try asking me one of the questions below 👇
 
 `
-				for _, q := range qs.Data {
-					msg = msg + q.Question + `
+			for _, q := range qs.Data {
+				msg = msg + q.Question + `
 `
-				}
-				err = d.SendAnswer(nil, &message, msg)
 			}
+			err = d.SendAnswer(nil, &message, msg)
 		}
 	}
 	if err != nil {

@@ -9,6 +9,7 @@ require (
 	github.com/apex/log v1.1.2
 	github.com/dghubble/sling v1.3.0 // indirect
 	github.com/ernesto-jimenez/httplogger v0.0.0-20150224132909-86cc44f6150a // indirect
+	github.com/fatih/structs v1.1.0
 	github.com/hashicorp/nomad/api v0.0.0-20200328152618-a8cf4972cebf // indirect
 	github.com/mattn/go-colorable v0.1.6 // indirect
 	github.com/mitchellh/go-homedir v1.1.0
@@ -17,5 +18,6 @@ require (
 	github.com/spf13/cobra v0.0.6
 	github.com/spf13/viper v1.6.2
 	github.com/tidwall/gjson v1.6.0
+	github.com/valyala/fasttemplate v1.1.0
 	go.mongodb.org/mongo-driver v1.3.1 // indirect
 )
