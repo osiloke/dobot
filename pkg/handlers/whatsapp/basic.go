@@ -16,10 +16,23 @@ func Login(wac *whatsapp.Conn, filepath string) error {
 	session, err := readSession(filepath)
 	if err == nil {
 		session, err = wac.RestoreWithSession(session)
+
 		if err != nil {
-			return fmt.Errorf("restoring session failed: %v", err)
+			fmt.Fprintf(os.Stderr, "restoring failed: %v\n", err)
+			//no saved session -> regular login
+			qr := make(chan string)
+			go func() {
+				terminal := qrcodeTerminal.New()
+				terminal.Get(<-qr).Print()
+			}()
+			session, err = wac.Login(qr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error during login: %v\n", err)
+				return err
+			}
 		}
 	} else {
+		fmt.Fprintf(os.Stderr, "unable to read session: %v\n", err)
 		qr := make(chan string)
 
 		go func() {
@@ -29,10 +42,7 @@ func Login(wac *whatsapp.Conn, filepath string) error {
 
 		session, err = wac.Login(qr)
 		if err != nil {
-			return fmt.Errorf("error during login: %v", err)
-		}
-		if err = writeSession(session, filepath+".initial"); err != nil {
-			return fmt.Errorf("error saving session: %v", err)
+			return fmt.Errorf("error login after failed read: %v", err)
 		}
 	}
 
@@ -63,6 +73,7 @@ func readSession(filepath string) (whatsapp.Session, error) {
 
 // WriteSession writes a session to a filepath
 func writeSession(session whatsapp.Session, filepath string) error {
+	log.Infof("writing session to %s", filepath)
 	file, err := os.Create(filepath)
 	if err != nil {
 		return err
@@ -102,7 +113,8 @@ func (mh *MessageHandler) HandleError(err error) {
 		log.Debug("Reconnecting...")
 		err := mh.wac.Restore()
 		if err != nil {
-			log.Fatalf("Restore failed: %v", err)
+			// log.Fatalf("Restore failed: %v", err)
+			panic(err)
 		}
 	} else {
 		log.Debugf("error occoured: %v\n", err)

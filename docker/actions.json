@@ -1,4 +1,30 @@
 {
+  "get_email_configuration": {
+    "method": "GetOne",
+    "store": "emails",
+    "query": {
+      "whatsapp": "message.phone"
+    },
+    "error": {
+        "msg": "Your phone number is not registered. send `Register whatsapp number`",
+        "data": {
+            "email": "message.messageText"
+        }
+    },
+    "next": {
+        "method": "GetOne",
+        "store": "mailConfiguration",
+        "query": {
+            "server": "result.mailspaceNamespace"
+        },
+        "error": {
+            "msg": "I could not get your mail configuration",
+            "data": {
+                "email": "message.messageText"
+            }
+        }
+    }
+  },
   "get_email": {
     "method": "GetOne",
     "store": "emails",

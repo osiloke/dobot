@@ -1,4 +1,4 @@
-VERSION := 0.0.3
+VERSION := 0.0.6
 NAME := $(shell echo $${PWD\#\#*/})
 TARGET := ./docker/$(NAME)
 all: clean build image tag push

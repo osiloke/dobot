@@ -53,7 +53,7 @@ var botCmd = &cobra.Command{
 		if err != nil {
 			panic(err)
 		}
-		wac.SetClientVersion(0, 4, 2080)
+		// wac.SetClientVersion(0, 4, 2080)
 		a := api.NewClientWithUser(apiURL, apiKey, apiToken, http.DefaultClient)
 		actionStore := bots.NewDostowActionStore(a)
 		actions := bots.Actions{}
